@@ -197,12 +197,22 @@ func AttemptExprAsType(e ast.Expr, fset *token.FileSet) map[string]interface{} {
 	}
 
 	if n, ok := e.(*ast.FuncType); ok {
+		variadic := ExtractVariadic(n.Params)
 		return map[string]interface{}{
 			"kind":     "type",
 			"type":     "function",
 			"params":   DumpFields(n.Params, fset),
+			"variadic": AttemptField(variadic, fset),
 			"results":  DumpFields(n.Results, fset),
 			"position": DumpPosition(fset.Position(e.Pos())),
+		}
+	}
+
+	if n, ok := e.(*ast.Ellipsis); ok {
+		return map[string]interface{}{
+			"kind":  "type",
+			"type":  "ellipsis",
+			"value": DumpExprAsType(n.Elt, fset),
 		}
 	}
 
@@ -274,10 +284,12 @@ func DumpExpr(e ast.Expr, fset *token.FileSet) map[string]interface{} {
 
 	// is this the right place??
 	if n, ok := e.(*ast.FuncLit); ok {
+		variadic := ExtractVariadic(n.Type.Params)
 		return map[string]interface{}{
 			"kind":     "literal",
 			"type":     "function",
 			"params":   DumpFields(n.Type.Params, fset),
+			"variadic": AttemptField(variadic, fset),
 			"results":  DumpFields(n.Type.Results, fset),
 			"body":     DumpBlock(n.Body, fset),
 			"position": DumpPosition(fset.Position(e.Pos())),
@@ -454,8 +466,15 @@ func DumpBasicLit(l *ast.BasicLit, fset *token.FileSet) map[string]interface{} {
 	}
 }
 
-func DumpField(f *ast.Field, fset *token.FileSet) map[string]interface{} {
+func AttemptField (f *ast.Field, fset *token.FileSet) map[string]interface{} {
+	if f == nil {
+		return nil
+	} else {
+		return DumpField(f, fset)
+	}
+}
 
+func DumpField(f *ast.Field, fset *token.FileSet) map[string]interface{} {
 	nameCount := 0
 	if f.Names != nil {
 		nameCount = len(f.Names)
@@ -925,13 +944,32 @@ func DumpBlockAsStmt(b *ast.BlockStmt, fset *token.FileSet) map[string]interface
 	}
 }
 
+// SIDE-EFFECT: if a variadic parameter is found, it is removed from
+// the original FieldList.
+func ExtractVariadic(params *ast.FieldList) *ast.Field {
+	ps := params.List
+	if len(ps) == 0 {
+		return nil
+	}
+	p := ps[len(ps)-1]
+	switch p.Type.(type) {
+	case *ast.Ellipsis:
+		params.List = params.List[:len(params.List)-1]
+		return p
+	default:
+		return nil
+	}
+}
+
 func DumpFuncDecl(f *ast.FuncDecl, fset *token.FileSet) map[string]interface{} {
+	variadic := ExtractVariadic(f.Type.Params)
 	return map[string]interface{}{
 		"kind":     "decl",
 		"type":     "function",
 		"name":     DumpIdent(f.Name, fset),
 		"body":     DumpBlock(f.Body, fset),
 		"params":   DumpFields(f.Type.Params, fset),
+		"variadic": AttemptField(variadic, fset),
 		"results":  DumpFields(f.Type.Results, fset),
 		"comments": DumpCommentGroup(f.Doc, fset),
 		"position": DumpPosition(fset.Position(f.Pos())),
@@ -939,6 +977,7 @@ func DumpFuncDecl(f *ast.FuncDecl, fset *token.FileSet) map[string]interface{} {
 }
 
 func DumpMethodDecl(f *ast.FuncDecl, fset *token.FileSet) map[string]interface{} {
+	variadic := ExtractVariadic(f.Type.Params)
 	return map[string]interface{}{
 		"kind":     "decl",
 		"type":     "method",
@@ -946,6 +985,7 @@ func DumpMethodDecl(f *ast.FuncDecl, fset *token.FileSet) map[string]interface{}
 		"name":     DumpIdent(f.Name, fset),
 		"body":     DumpBlock(f.Body, fset),
 		"params":   DumpFields(f.Type.Params, fset),
+		"variadic": AttemptField(variadic, fset),
 		"results":  DumpFields(f.Type.Results, fset),
 		"comments": DumpCommentGroup(f.Doc, fset),
 		"position": DumpPosition(fset.Position(f.Pos())),
